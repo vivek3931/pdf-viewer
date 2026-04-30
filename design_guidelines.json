@@ -1,0 +1,105 @@
+{
+  "project_name": "Premium PDF Viewer",
+  "theme": "Light",
+  "archetype": "4 (Swiss & High-Contrast)",
+  "vibe": "Objective, rigid, functional, modern premium, high-contrast, professional",
+  "colors": {
+    "background": "#FFFFFF",
+    "surface": "#F4F4F5",
+    "surface_hover": "#E4E4E7",
+    "border": "#E4E4E7",
+    "text_primary": "#09090B",
+    "text_secondary": "#52525B",
+    "accent": "#002FA7",
+    "accent_hover": "#001D66",
+    "accent_text": "#FFFFFF",
+    "danger": "#EF4444"
+  },
+  "typography": {
+    "font_family_heading": "'Outfit', sans-serif",
+    "font_family_body": "'Inter', sans-serif",
+    "font_family_mono": "'JetBrains Mono', monospace",
+    "hierarchy": {
+      "h1": "text-4xl tracking-tight font-bold text-zinc-950",
+      "h2": "text-2xl tracking-tight font-semibold text-zinc-950",
+      "h3": "text-xl tracking-tight font-medium text-zinc-900",
+      "body": "text-base leading-relaxed text-zinc-700",
+      "small": "text-sm text-zinc-500",
+      "mono_label": "text-xs font-mono uppercase tracking-[0.2em] text-zinc-500"
+    }
+  },
+  "layout_spacing": {
+    "philosophy": "Control Room Grid. High functional density with clear optical boundaries and generous negative space in the empty state.",
+    "app_container": "h-screen w-full flex flex-col bg-zinc-50 overflow-hidden font-sans text-zinc-950",
+    "header": "h-14 flex items-center justify-between px-4 lg:px-6 border-b border-zinc-200 bg-white/80 backdrop-blur-xl z-50 flex-shrink-0",
+    "main_content": "flex-1 flex overflow-hidden relative",
+    "sidebar": "w-72 bg-white border-r border-zinc-200 overflow-y-auto flex-shrink-0 transition-all duration-300 flex flex-col",
+    "viewer_area": "flex-1 overflow-auto bg-zinc-100 relative p-4 md:p-8 flex justify-center items-start",
+    "empty_state_container": "absolute inset-0 flex flex-col items-center justify-center p-6 bg-cover bg-center z-10"
+  },
+  "components": {
+    "empty_state_upload": {
+      "style": "bg-white/80 backdrop-blur-2xl border border-zinc-200/50 border-dashed rounded-2xl p-10 max-w-xl w-full flex flex-col items-center justify-center text-center shadow-[0_8px_32px_rgba(0,0,0,0.04)] hover:border-blue-400 hover:bg-white/95 transition-all cursor-pointer group",
+      "icon_style": "text-zinc-400 group-hover:text-blue-600 transition-colors mb-4",
+      "url_input_wrapper": "mt-6 w-full max-w-md flex items-center gap-2"
+    },
+    "toolbar": {
+      "style": "flex items-center gap-1 md:gap-2",
+      "icon_button": "h-8 w-8 flex items-center justify-center rounded-md text-zinc-600 hover:text-zinc-950 hover:bg-zinc-100 transition-colors",
+      "primary_button": "h-8 px-4 rounded-md bg-blue-700 text-white font-medium hover:bg-blue-800 transition-colors shadow-sm text-sm flex items-center gap-2",
+      "search_wrapper": "relative hidden md:flex items-center h-8 bg-zinc-100 rounded-md border border-transparent focus-within:border-blue-500 focus-within:bg-white focus-within:ring-2 focus-within:ring-blue-500/20 transition-all",
+      "search_input": "h-full bg-transparent pl-8 pr-3 text-sm focus:outline-none w-48 lg:w-64",
+      "divider": "w-px h-5 bg-zinc-200 mx-1 md:mx-2"
+    },
+    "sidebar_thumbnail": {
+      "container": "p-3 border-b border-zinc-100 hover:bg-zinc-50 cursor-pointer transition-colors flex flex-col items-center gap-2 w-full",
+      "active_style": "bg-blue-50/50 border-l-2 border-l-blue-700",
+      "image_wrapper": "border border-zinc-200 shadow-sm bg-white aspect-[1/1.4] w-32 flex items-center justify-center overflow-hidden",
+      "page_number": "text-[11px] font-mono text-zinc-500"
+    },
+    "pdf_page_container": {
+      "style": "bg-white shadow-[0_2px_12px_rgba(0,0,0,0.08)] mb-6 max-w-full origin-top relative mx-auto",
+      "annotation_layer": "absolute inset-0 pointer-events-none z-10"
+    },
+    "zoom_controls": {
+      "style": "fixed bottom-6 right-6 flex items-center gap-1 bg-white border border-zinc-200 rounded-full shadow-[0_4px_16px_rgba(0,0,0,0.1)] p-1 z-40 backdrop-blur-md"
+    },
+    "annotation_tools": {
+      "floating_bar": "absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-zinc-900 border border-zinc-800 rounded-full shadow-xl p-1 z-50",
+      "tool_button": "h-8 w-8 flex items-center justify-center rounded-full text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+    }
+  },
+  "media": {
+    "empty_state_background": {
+      "url": "https://static.prod-images.emergentagent.com/jobs/8248c193-920c-4494-bce3-111b50039e46/images/4b2fbfc9c77d955963e21222c8d3a58428cbfc2e786b75e064da7f89cf0f4531.png",
+      "description": "Premium Swiss design abstract background for the empty state dropzone. Set this as the background-image of the empty state container.",
+      "category": "background"
+    }
+  },
+  "animations": {
+    "hover": "transition-colors duration-200",
+    "sidebar_toggle": "transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
+    "page_load": "animate-in fade-in zoom-in-[0.98] duration-400",
+    "modal_enter": "animate-in fade-in slide-in-from-bottom-4 duration-300"
+  },
+  "icons": {
+    "library": "@phosphor-icons/react",
+    "installation": "yarn add @phosphor-icons/react"
+  },
+  "testing": {
+    "attributes_required": true,
+    "format": "data-testid='kebab-case-role-name'"
+  },
+  "instructions_to_main_agent": [
+    "TECH STACK: Use standard Shadcn UI components (button, dialog, input) + lucide-react (fallback) or @phosphor-icons/react for professional iconography.",
+    "PDF LIBRARY: Use 'react-pdf' (yarn add react-pdf) for reliable PDF parsing, rendering pages, and text-layer (for search/highlight). Set up the worker properly.",
+    "LAYOUT: Build a 'Control Room Grid'. Header top (sticky), left sidebar (thumbnails, toggleable width 0 to 288px), right main viewer. Ensure 'overflow-hidden' on the root app container so scrolling only happens within the sidebar and viewer_area.",
+    "EMPTY STATE: Start with no PDF. The viewer area should show 'empty_state_container' using the provided 'empty_state_background' url as a CSS background image (bg-cover, bg-center). On top, place a 'Crystal Glass' style dropzone card (backdrop-blur-2xl) that accepts drag & drop, file input click, and has a small input field below the icon to load from URL.",
+    "ZOOM & RESPONSIVENESS: Handle pinch-zoom on mobile and ctrl+scroll on desktop. Combine standard CSS transforms on the PDF wrapper with dynamic 'scale' prop updates on the react-pdf <Page /> component so high-zoom remains crisp.",
+    "THUMBNAILS: Render smaller react-pdf <Page /> components in the sidebar for thumbnails, or just use CSS scaling. Add click handlers to scroll the main viewer to the respective page.",
+    "SEARCH: Implement a search input in the header that uses react-pdf's text layer or custom regex to highlight matches on the page.",
+    "ANNOTATIONS: To support highlighting, layer an absolute positioned div over the <Page> component. Capture text selection events and render colored span boxes over selected text coordinates.",
+    "ACTIONS: Implement Print (using window.print() or hidden iframe) and Download (using standard anchor tag download attribute with the file Blob).",
+    "TESTING: Add 'data-testid' to EVERY button, input, and interactive element (e.g. data-testid='pdf-upload-dropzone', data-testid='zoom-in-btn')."
+  ]
+}

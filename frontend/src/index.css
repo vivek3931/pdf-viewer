@@ -1,0 +1,220 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --pdf-bg: #FFFFFF;
+  --pdf-surface: #F4F4F5;
+  --pdf-surface-hover: #E4E4E7;
+  --pdf-border: #E4E4E7;
+  --pdf-text-primary: #09090B;
+  --pdf-text-secondary: #52525B;
+  --pdf-accent: #002FA7;
+  --pdf-accent-hover: #001D66;
+  --pdf-accent-text: #FFFFFF;
+  --pdf-danger: #EF4444;
+}
+
+body {
+  margin: 0;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen", "Ubuntu", "Cantarell", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: var(--pdf-surface);
+  color: var(--pdf-text-primary);
+}
+
+code {
+  font-family: 'JetBrains Mono', source-code-pro, Menlo, Monaco, Consolas, "Courier New", monospace;
+}
+
+/* Prevent body scroll when fullscreen */
+body.fullscreen-active {
+  overflow: hidden;
+}
+
+/* PDF Text Layer Styles */
+.react-pdf__Page__textContent {
+  position: absolute !important;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  overflow: hidden;
+  opacity: 0.2;
+  line-height: 1.0;
+  user-select: text;
+}
+
+.react-pdf__Page__textContent span {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  transform-origin: 0% 0%;
+}
+
+.react-pdf__Page__textContent span::selection {
+  background: rgba(0, 47, 167, 0.3);
+}
+
+/* PDF Annotations Layer */
+.react-pdf__Page__annotations {
+  position: absolute !important;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+}
+
+/* Search Highlight */
+.search-highlight {
+  background-color: rgba(255, 213, 0, 0.5);
+  border-radius: 2px;
+}
+
+.search-highlight-active {
+  background-color: rgba(255, 140, 0, 0.7);
+}
+
+/* Annotation Highlight */
+.annotation-highlight {
+  position: absolute;
+  background-color: rgba(255, 235, 59, 0.4);
+  border-radius: 2px;
+  pointer-events: none;
+  transition: background-color 0.2s;
+}
+
+.annotation-highlight.color-yellow { background-color: rgba(255, 235, 59, 0.4); }
+.annotation-highlight.color-green { background-color: rgba(76, 175, 80, 0.4); }
+.annotation-highlight.color-blue { background-color: rgba(33, 150, 243, 0.4); }
+.annotation-highlight.color-pink { background-color: rgba(233, 30, 99, 0.4); }
+
+/* Custom Scrollbar */
+.pdf-sidebar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.pdf-sidebar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.pdf-sidebar::-webkit-scrollbar-thumb {
+  background-color: #D4D4D8;
+  border-radius: 3px;
+}
+
+.pdf-sidebar::-webkit-scrollbar-thumb:hover {
+  background-color: #A1A1AA;
+}
+
+.pdf-viewer-area::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.pdf-viewer-area::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.pdf-viewer-area::-webkit-scrollbar-thumb {
+  background-color: #D4D4D8;
+  border-radius: 4px;
+}
+
+.pdf-viewer-area::-webkit-scrollbar-thumb:hover {
+  background-color: #A1A1AA;
+}
+
+/* Pinch Zoom Container */
+.pinch-zoom-container {
+  touch-action: none;
+  transform-origin: center center;
+}
+
+/* Dropzone Animation */
+.dropzone-active {
+  border-color: var(--pdf-accent) !important;
+  background-color: rgba(0, 47, 167, 0.05) !important;
+}
+
+/* Page Load Animation */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.page-animate-in {
+  animation: fadeInUp 0.3s ease-out forwards;
+}
+
+/* Fullscreen styles */
+.pdf-viewer-fullscreen {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  z-index: 9999 !important;
+  background: var(--pdf-surface);
+}
+
+/* Thumbnail active state */
+.thumbnail-active {
+  background-color: rgba(0, 47, 167, 0.08);
+  border-left: 3px solid var(--pdf-accent);
+}
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 0 0% 3.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 3.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 3.9%;
+    --primary: 224 100% 33%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 96.1%;
+    --secondary-foreground: 0 0% 9%;
+    --muted: 0 0% 96.1%;
+    --muted-foreground: 0 0% 45.1%;
+    --accent: 0 0% 96.1%;
+    --accent-foreground: 0 0% 9%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 89.8%;
+    --input: 0 0% 89.8%;
+    --ring: 224 100% 33%;
+    --chart-1: 12 76% 61%;
+    --chart-2: 173 58% 39%;
+    --chart-3: 197 37% 24%;
+    --chart-4: 43 74% 66%;
+    --chart-5: 27 87% 67%;
+    --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+@layer base {
+  [data-debug-wrapper="true"] {
+    display: contents !important;
+  }
+}
