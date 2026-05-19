@@ -46,110 +46,54 @@ const MAX_ZOOM = 500;
 const BOOKMARKS_KEY = 'pdf_viewer_bookmarks';
 const HISTORY_KEY = 'pdf_viewer_history';
 
-// ========== TRUE DOUBLE BUFFERING COMPONENT ==========
-// This prevents the "blink" by rendering the new zoom level in the background
-// and only swapping it to the front when it has successfully painted.
+// ========== SIMPLE PAGE RENDERER ==========
+// CSS transform for instant visual zoom, debounced real render. No double-buffering.
 const VisiblePage = React.memo(({ pageNumber, targetScale, renderedScale, isBookmarked, onSizeChange }) => {
-  const [isRendered, setIsRendered] = useState(false);
-  const [pageSize, setPageSize] = useState({ width: 595, height: 842 }); // Default A4 fallback
-  
-  const [mountedScales, setMountedScales] = useState([renderedScale]);
-  const [activeScale, setActiveScale] = useState(renderedScale);
-  const renderedScaleRef = useRef(renderedScale);
+  const [pageSize, setPageSize] = useState({ width: 595, height: 842 });
+  const sizeRef = useRef(pageSize);
 
-  useEffect(() => {
-    renderedScaleRef.current = renderedScale;
-  }, [renderedScale]);
+  const onPageLoad = useCallback((page) => {
+    const w = page.width / renderedScale;
+    const h = page.height / renderedScale;
+    if (Math.abs(sizeRef.current.width - w) > 1 || Math.abs(sizeRef.current.height - h) > 1) {
+      const size = { width: w, height: h };
+      sizeRef.current = size;
+      setPageSize(size);
+      if (onSizeChange) onSizeChange(pageNumber, size);
+    }
+  }, [renderedScale, pageNumber, onSizeChange]);
 
-  useEffect(() => {
-    setMountedScales(prev => {
-      if (!prev.includes(renderedScale)) {
-        setIsRendered(false);
-        return [...prev, renderedScale];
-      }
-      return prev;
-    });
-  }, [renderedScale]);
-
-  const onPageLoadSuccess = (page) => {
-    const size = { width: page.width / renderedScale, height: page.height / renderedScale };
-    setPageSize(size);
-    if (onSizeChange) onSizeChange(pageNumber, size);
-  };
-
-  const handleRenderSuccess = useCallback((scale) => {
-    setIsRendered(true);
-    // The new high-res page is ready. Make it active.
-    setActiveScale(scale);
-    
-    // Unmount all older versions to free up memory, keeping ONLY the newly active one 
-    // and the target one (if the user kept zooming while this was rendering).
-    setMountedScales(prev => prev.filter(s => s === scale || s === renderedScaleRef.current));
-  }, []);
+  const visualScale = targetScale / renderedScale;
 
   return (
-    <div 
-       
+    <div
       className="pdf-page-wrapper"
-      style={{ 
+      style={{
         width: pageSize.width * targetScale,
         height: pageSize.height * targetScale,
-        margin: `0 auto ${40 * targetScale}px auto`,
-        position: 'relative'
+        position: 'relative',
+        overflow: 'hidden',
+        background: 'white',
+        borderRadius: 2,
       }}
     >
-      {mountedScales.map((scale) => {
-        const isVisibleLayer = scale === activeScale;
-        const visualScale = targetScale / scale;
-        
-        return (
-          <div 
-            key={scale}
-            className="pdf-page-content"
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              transform: visualScale === 1 ? 'none' : `scale(${visualScale})`,
-              transformOrigin: 'top left',
-              width: pageSize.width * scale,
-              height: pageSize.height * scale,
-              background: 'white',
-              boxShadow: isVisibleLayer ? '0 8px 30px rgba(0, 0, 0, 0.12)' : 'none',
-              borderRadius: '4px',
-              overflow: 'hidden',
-              // The active layer sits on top and is visible. Rendering layers are hidden beneath.
-              zIndex: isVisibleLayer ? 2 : 1,
-              opacity: isVisibleLayer ? 1 : 0,
-              pointerEvents: isVisibleLayer ? 'auto' : 'none'
-            }}
-          >
-            {isVisibleLayer && (
-              <div className="pdf-page-indicators">
-                <span className="pdf-page-number">{pageNumber}</span>
-                {isBookmarked && <BookmarkSimple size={14} weight="fill" className="pdf-page-bookmark" />}
-              </div>
-            )}
-            
-            {(!isRendered) && (
-              <div className="pdf-page-loading-placeholder" style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#F8F8F8' }}>
-                <div className="pdf-loading-spinner" />
-              </div>
-            )}
-            
-            <Page 
-              pageNumber={pageNumber} 
-              scale={scale} 
-              devicePixelRatio={window.devicePixelRatio || 1}
-              onLoadSuccess={onPageLoadSuccess}
-              onRenderSuccess={() => handleRenderSuccess(scale)}
-              renderTextLayer={true} 
-              renderAnnotationLayer={true} 
-              loading={null}
-            />
-          </div>
-        );
-      })}
+      <div
+        style={{
+          transform: visualScale === 1 ? 'none' : `scale(${visualScale})`,
+          transformOrigin: 'top left',
+          width: pageSize.width * renderedScale,
+          height: pageSize.height * renderedScale,
+        }}
+      >
+        <Page
+          pageNumber={pageNumber}
+          scale={renderedScale}
+          renderTextLayer={true}
+          renderAnnotationLayer={true}
+          loading={null}
+          onLoadSuccess={onPageLoad}
+        />
+      </div>
     </div>
   );
 });
@@ -210,11 +154,13 @@ const PDFViewer = () => {
   const viewerRef = useRef(null);
   const sidebarRef = useRef(null);
   const fileInputRef = useRef(null);
+  const pageRefs = useRef({});
   const zoomMenuRef = useRef(null);
   const controlsTimeoutRef = useRef(null);
   const zoomTimeoutRef = useRef(null);
   const pdfDocRef = useRef(null);
   const pendingScrollRef = useRef(null);
+  const scrollRafRef = useRef(null);
 
   // Virtualization state
   const [pageSizes, setPageSizes] = useState({});
@@ -225,7 +171,7 @@ const PDFViewer = () => {
 
   const DEFAULT_WIDTH = 595;
   const DEFAULT_HEIGHT = 842;
-  const GAP = 40;
+  const GAP = 8;
 
   const { totalHeight, pageOffsets, containerWidth } = useMemo(() => {
     if (!numPages) return { totalHeight: 0, pageOffsets: [], containerWidth: DEFAULT_WIDTH };
@@ -263,8 +209,8 @@ const PDFViewer = () => {
       endIndex++;
     }
     
-    const start = Math.max(0, startIndex - 2);
-    const end = Math.min(numPages - 1, endIndex + 2);
+    const start = Math.max(0, startIndex - 5);
+    const end = Math.min(numPages - 1, endIndex + 5);
     
     const pages = [];
     for (let i = start; i <= end; i++) pages.push(i + 1);
@@ -394,21 +340,29 @@ const PDFViewer = () => {
   }, [pdfName]);
 
   const extractAllText = async (pdf) => {
-    const texts = {};
-    const maxPagesToExtract = Math.min(pdf.numPages, 50);
-    for (let i = 1; i <= maxPagesToExtract; i++) {
-      try {
-        const page = await pdf.getPage(i);
-        const textContent = await page.getTextContent();
-        texts[i] = textContent.items.map(item => ({ str: item.str, transform: item.transform }));
-        if (i % 5 === 0) await new Promise(r => setTimeout(r, 10)); // Yield to main thread
-      } catch (err) {
-        console.error(`Error extracting text from page ${i}:`, err);
-        texts[i] = [];
+    const maxPages = Math.min(pdf.numPages, 100);
+    const batchSize = 3;
+    
+    for (let i = 1; i <= maxPages; i += batchSize) {
+      const batch = [];
+      for (let j = i; j < Math.min(i + batchSize, maxPages + 1); j++) {
+        batch.push(
+          pdf.getPage(j).then(page => page.getTextContent()).then(tc => ({
+            page: j,
+            items: tc.items.map(item => ({ str: item.str, transform: item.transform }))
+          })).catch(() => ({ page: j, items: [] }))
+        );
       }
+      const results = await Promise.all(batch);
+      setPageTexts(prev => {
+        const next = { ...prev };
+        results.forEach(r => { next[r.page] = r.items; });
+        return next;
+      });
+      // Yield to main thread after each batch
+      await new Promise(r => setTimeout(r, 0));
     }
-    setPageTexts(texts);
-    if (pdf.numPages > 50) toast.info('Search is limited to the first 50 pages for large PDFs.');
+    if (pdf.numPages > 100) toast.info('Search covers the first 100 pages for performance.');
   };
 
   const onDocumentLoadError = (error) => {
@@ -435,11 +389,20 @@ const PDFViewer = () => {
     setSearchQuery('');
     setSearchResults([]);
     setPageTexts({});
+    setPageSizes({});
     setZoom(100);
     setRenderedZoom(100);
     setHighlightedText('');
     setCurrentSearchIndex(0);
   };
+
+  const handlePageSizeChange = useCallback((pageNumber, size) => {
+    setPageSizes(prev => {
+      const existing = prev[pageNumber];
+      if (existing && existing.width === size.width && existing.height === size.height) return prev;
+      return { ...prev, [pageNumber]: size };
+    });
+  }, []);
 
   const handleFileInputChange = (e) => handleFileSelect(e.target.files?.[0]);
 
@@ -680,13 +643,21 @@ const PDFViewer = () => {
   }, [pageTexts]);
 
   const highlightSearchInPage = useCallback((pageNum, query) => {
-    setTimeout(() => {
+    // Clear all existing highlights
+    document.querySelectorAll('.search-highlight-marker').forEach(el => el.remove());
+    
+    const attempt = (retries) => {
       const pageEl = pageRefs.current[pageNum];
-      if (!pageEl) return;
+      if (!pageEl) {
+        if (retries > 0) setTimeout(() => attempt(retries - 1), 200);
+        return;
+      }
 
-      document.querySelectorAll('.search-highlight-marker').forEach(el => el.remove());
       const textLayer = pageEl.querySelector('.react-pdf__Page__textContent');
-      if (!textLayer) return;
+      if (!textLayer) {
+        if (retries > 0) setTimeout(() => attempt(retries - 1), 200);
+        return;
+      }
 
       const spans = textLayer.querySelectorAll('span');
       const searchLower = query.toLowerCase();
@@ -713,7 +684,10 @@ const PDFViewer = () => {
           pageEl.appendChild(highlight);
         }
       });
-    }, 100);
+    };
+    
+    // Wait for page to be virtualized in + rendered
+    setTimeout(() => attempt(5), 300);
   }, []);
 
   const handleSearch = useCallback((query) => setSearchQuery(query), []);
@@ -792,27 +766,31 @@ const PDFViewer = () => {
   }, [pageOffsets, isMobile, updateHistoryPage]);
 
   const handleScroll = useCallback(() => {
-    if (!viewerRef.current) return;
-    const top = viewerRef.current.scrollTop;
-    setScrollTop(top);
-    
-    const center = top + (viewerRef.current.clientHeight / 2);
-    let low = 0, high = pageOffsets.length - 1;
-    let closest = 1;
-    while (low <= high) {
-      const mid = Math.floor((low + high) / 2);
-      if (pageOffsets[mid] <= center && (mid === pageOffsets.length - 1 || pageOffsets[mid + 1] > center)) {
-        closest = mid + 1;
-        break;
-      } else if (pageOffsets[mid] < center) {
-        low = mid + 1;
-      } else {
-        high = mid - 1;
+    if (scrollRafRef.current) return; // Already scheduled
+    scrollRafRef.current = requestAnimationFrame(() => {
+      scrollRafRef.current = null;
+      if (!viewerRef.current) return;
+      const top = viewerRef.current.scrollTop;
+      setScrollTop(top);
+      
+      const center = top + (viewerRef.current.clientHeight / 2);
+      let low = 0, high = pageOffsets.length - 1;
+      let closest = 1;
+      while (low <= high) {
+        const mid = Math.floor((low + high) / 2);
+        if (pageOffsets[mid] <= center && (mid === pageOffsets.length - 1 || pageOffsets[mid + 1] > center)) {
+          closest = mid + 1;
+          break;
+        } else if (pageOffsets[mid] < center) {
+          low = mid + 1;
+        } else {
+          high = mid - 1;
+        }
       }
-    }
-    
-    setCurrentPage(prev => prev !== closest ? closest : prev);
-    showControls();
+      
+      setCurrentPage(prev => prev !== closest ? closest : prev);
+      showControls();
+    });
   }, [pageOffsets, showControls]);
 
   const handleDownload = useCallback(() => {
@@ -843,22 +821,31 @@ const PDFViewer = () => {
     if (selection?.toString().trim()) {
       const range = selection.getRangeAt(0);
       const rect = range.getBoundingClientRect();
-      const viewerRect = viewerRef.current?.getBoundingClientRect();
-      if (viewerRect) {
-        setAnnotations(prev => [...prev, {
-          id: Date.now(),
-          color: highlightColor,
-          rect: {
-            top: rect.top - viewerRect.top + viewerRef.current.scrollTop,
-            left: rect.left - viewerRect.left,
-            width: rect.width,
-            height: rect.height
-          },
-          page: currentPage
-        }]);
-        toast.success('Highlighted');
-        selection.removeAllRanges();
+      
+      // Find which page the selection is in
+      const pageEl = pageRefs.current[currentPage];
+      if (pageEl) {
+        const pageRect = pageEl.getBoundingClientRect();
+        const pw = pageRect.width;
+        const ph = pageRect.height;
+        if (pw > 0 && ph > 0) {
+          setAnnotations(prev => [...prev, {
+            id: Date.now(),
+            color: highlightColor,
+            text: selection.toString(),
+            // Store as percentages (0-100) so they are zoom-independent
+            rect: {
+              topPct: ((rect.top - pageRect.top) / ph) * 100,
+              leftPct: ((rect.left - pageRect.left) / pw) * 100,
+              widthPct: (rect.width / pw) * 100,
+              heightPct: (rect.height / ph) * 100
+            },
+            page: currentPage
+          }]);
+          toast.success('Highlighted');
+        }
       }
+      selection.removeAllRanges();
     }
   }, [annotationMode, highlightColor, currentPage]);
 
@@ -1092,20 +1079,47 @@ const PDFViewer = () => {
           {pdfSource && !error && (
             <div 
               className="pdf-pages-container" 
-              style={{ position: 'relative', height: totalHeight, width: Math.max(containerWidth, 595), display: 'inline-block' }}
+              style={{ position: 'relative', height: totalHeight, width: '100%', minWidth: Math.max(containerWidth, 595) }}
             >
               <Document file={pdfSource} onLoadSuccess={onDocumentLoadSuccess} onLoadError={onDocumentLoadError} loading={<div className="pdf-loading"><div className="pdf-loading-spinner" /></div>}>
-                {visiblePages.map((pageNum) => (
-                  <div key={pageNum} style={{ position: 'absolute', top: pageOffsets[pageNum - 1], left: '50%', transform: 'translateX(-50%)' }}>
-                    <VisiblePage 
-                      pageNumber={pageNum}
-                      targetScale={zoom / 100}
-                      renderedScale={renderedZoom / 100}
-                      isBookmarked={isPageBookmarked(pageNum)}
-                      onSizeChange={(pageNumber, size) => setPageSizes(prev => ({ ...prev, [pageNumber]: size }))}
-                    />
-                  </div>
-                ))}
+                {visiblePages.map((pageNum) => {
+                  const pageAnnotations = annotations.filter(a => a.page === pageNum);
+                  return (
+                    <div 
+                      key={pageNum} 
+                      ref={(el) => { if (el) pageRefs.current[pageNum] = el; }}
+                      style={{ position: 'absolute', top: pageOffsets[pageNum - 1], left: '50%', transform: 'translateX(-50%)' }}
+                    >
+                      <VisiblePage 
+                        pageNumber={pageNum}
+                        targetScale={zoom / 100}
+                        renderedScale={renderedZoom / 100}
+                        isBookmarked={isPageBookmarked(pageNum)}
+                        onSizeChange={handlePageSizeChange}
+                      />
+                      {pageAnnotations.map(ann => {
+                        const colorMap = { yellow: 'rgba(255, 235, 59, 0.35)', green: 'rgba(76, 175, 80, 0.35)', blue: 'rgba(33, 150, 243, 0.35)', pink: 'rgba(233, 30, 99, 0.35)' };
+                        return (
+                          <div
+                            key={ann.id}
+                            style={{
+                              position: 'absolute',
+                              top: `${ann.rect.topPct}%`,
+                              left: `${ann.rect.leftPct}%`,
+                              width: `${ann.rect.widthPct}%`,
+                              height: `${ann.rect.heightPct}%`,
+                              background: colorMap[ann.color] || colorMap.yellow,
+                              borderRadius: 2,
+                              pointerEvents: 'none',
+                              zIndex: 5,
+                              mixBlendMode: 'multiply'
+                            }}
+                          />
+                        );
+                      })}
+                    </div>
+                  );
+                })}
               </Document>
             </div>
           )}

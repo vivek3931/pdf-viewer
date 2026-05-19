@@ -149,15 +149,15 @@
   display: block;
   text-align: center;
   touch-action: pan-x pan-y;
+  -webkit-overflow-scrolling: touch;
 }
 
 @media (min-width: 768px) { .pdf-viewer-area { padding: 24px; } }
 
 .pdf-pages-container {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: center;
+  display: block;
   text-align: left;
+  margin: 0 auto;
 }
 
 /* Empty State */
@@ -455,14 +455,12 @@
 .pdf-zoom-menu-item.active { background: rgba(0, 47, 167, 0.1); color: #002FA7; font-weight: 500; }
 
 .pdf-page-wrapper {
-  margin-bottom: 32px;
   position: relative;
   z-index: 1;
 }
 
 .pdf-page-content {
   position: relative;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.12);
   background: white;
   border-radius: 2px;
   overflow: hidden;
