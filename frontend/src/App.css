@@ -146,19 +146,18 @@
   background: #EAEAEC;
   position: relative;
   padding: 16px;
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
+  display: block;
+  text-align: center;
   touch-action: pan-x pan-y;
 }
 
 @media (min-width: 768px) { .pdf-viewer-area { padding: 24px; } }
 
 .pdf-pages-container {
-  display: flex;
+  display: inline-flex;
   flex-direction: column;
   align-items: center;
-  width: 100%;
+  text-align: left;
 }
 
 /* Empty State */

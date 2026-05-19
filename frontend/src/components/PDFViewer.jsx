@@ -49,45 +49,36 @@ const HISTORY_KEY = 'pdf_viewer_history';
 // ========== TRUE DOUBLE BUFFERING COMPONENT ==========
 // This prevents the "blink" by rendering the new zoom level in the background
 // and only swapping it to the front when it has successfully painted.
-const VisiblePage = ({ pageNumber, targetScale, renderedScale, isBookmarked, pageRef }) => {
-  const [isVisible, setIsVisible] = useState(false);
+const VisiblePage = React.memo(({ pageNumber, targetScale, renderedScale, isBookmarked, onSizeChange }) => {
+  const [isRendered, setIsRendered] = useState(false);
   const [pageSize, setPageSize] = useState({ width: 595, height: 842 }); // Default A4 fallback
   
-  // Track all scales currently in the DOM. Old scales stay mounted until new ones finish.
   const [mountedScales, setMountedScales] = useState([renderedScale]);
   const [activeScale, setActiveScale] = useState(renderedScale);
-  
-  const containerRef = useRef(null);
   const renderedScaleRef = useRef(renderedScale);
 
-  // Keep a ref of the latest requested scale to avoid stale closures
   useEffect(() => {
     renderedScaleRef.current = renderedScale;
   }, [renderedScale]);
 
-  // Lazy loading observer
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      ([entry]) => { if (entry.isIntersecting) setIsVisible(true); },
-      { rootMargin: '1000px', threshold: 0 }
-    );
-    if (containerRef.current) observer.observe(containerRef.current);
-    return () => { if (containerRef.current) observer.unobserve(containerRef.current); };
-  }, []);
-
-  // When a new zoom finishes its 300ms debounce, mount it in the background
   useEffect(() => {
     setMountedScales(prev => {
-      if (!prev.includes(renderedScale)) return [...prev, renderedScale];
+      if (!prev.includes(renderedScale)) {
+        setIsRendered(false);
+        return [...prev, renderedScale];
+      }
       return prev;
     });
   }, [renderedScale]);
 
   const onPageLoadSuccess = (page) => {
-    setPageSize({ width: page.width / renderedScale, height: page.height / renderedScale });
+    const size = { width: page.width / renderedScale, height: page.height / renderedScale };
+    setPageSize(size);
+    if (onSizeChange) onSizeChange(pageNumber, size);
   };
 
   const handleRenderSuccess = useCallback((scale) => {
+    setIsRendered(true);
     // The new high-res page is ready. Make it active.
     setActiveScale(scale);
     
@@ -98,19 +89,16 @@ const VisiblePage = ({ pageNumber, targetScale, renderedScale, isBookmarked, pag
 
   return (
     <div 
-      ref={(el) => {
-        containerRef.current = el;
-        if (pageRef) pageRef(el);
-      }} 
+       
       className="pdf-page-wrapper"
       style={{ 
         width: pageSize.width * targetScale,
         height: pageSize.height * targetScale,
-        margin: '0 auto 40px auto',
+        margin: `0 auto ${40 * targetScale}px auto`,
         position: 'relative'
       }}
     >
-      {isVisible ? mountedScales.map((scale) => {
+      {mountedScales.map((scale) => {
         const isVisibleLayer = scale === activeScale;
         const visualScale = targetScale / scale;
         
@@ -143,6 +131,12 @@ const VisiblePage = ({ pageNumber, targetScale, renderedScale, isBookmarked, pag
               </div>
             )}
             
+            {(!isRendered) && (
+              <div className="pdf-page-loading-placeholder" style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#F8F8F8' }}>
+                <div className="pdf-loading-spinner" />
+              </div>
+            )}
+            
             <Page 
               pageNumber={pageNumber} 
               scale={scale} 
@@ -155,14 +149,24 @@ const VisiblePage = ({ pageNumber, targetScale, renderedScale, isBookmarked, pag
             />
           </div>
         );
-      }) : (
-        <div className="pdf-page-loading-placeholder" style={{ position: 'absolute', inset: 0 }}>
-          <div className="pdf-loading-spinner" />
-        </div>
-      )}
+      })}
     </div>
   );
-};
+});
+
+const ThumbnailItem = React.memo(({ pageNum, isActive, scrollToPage, isBookmarked }) => {
+  return (
+    <div className={`pdf-thumbnail ${isActive ? 'active' : ''}`} onClick={() => scrollToPage(pageNum)} data-testid={`thumbnail-page-${pageNum}`}>
+      <div className="pdf-thumbnail-image" style={{ minHeight: '160px', display: 'flex', justifyContent: 'center' }}>
+        <Page pageNumber={pageNum} width={120} renderTextLayer={false} renderAnnotationLayer={false} loading={<div className="pdf-loading-spinner" style={{ transform: 'scale(0.5)' }} />} />
+      </div>
+      <div className="pdf-thumbnail-info">
+        <span className="pdf-thumbnail-label">{pageNum}</span>
+        {isBookmarked && <BookmarkSimple size={12} weight="fill" className="text-[#002FA7]" />}
+      </div>
+    </div>
+  );
+});
 
 const PDFViewer = () => {
   // Core state
@@ -204,13 +208,90 @@ const PDFViewer = () => {
   // Refs
   const containerRef = useRef(null);
   const viewerRef = useRef(null);
+  const sidebarRef = useRef(null);
   const fileInputRef = useRef(null);
-  const pageRefs = useRef({});
   const zoomMenuRef = useRef(null);
   const controlsTimeoutRef = useRef(null);
   const zoomTimeoutRef = useRef(null);
   const pdfDocRef = useRef(null);
   const pendingScrollRef = useRef(null);
+
+  // Virtualization state
+  const [pageSizes, setPageSizes] = useState({});
+  const [scrollTop, setScrollTop] = useState(0);
+  const [sidebarScrollTop, setSidebarScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(800);
+  const [sidebarHeight, setSidebarHeight] = useState(800);
+
+  const DEFAULT_WIDTH = 595;
+  const DEFAULT_HEIGHT = 842;
+  const GAP = 40;
+
+  const { totalHeight, pageOffsets, containerWidth } = useMemo(() => {
+    if (!numPages) return { totalHeight: 0, pageOffsets: [], containerWidth: DEFAULT_WIDTH };
+    const offsets = [];
+    let currentTop = 0;
+    let maxWidth = 0;
+    const scale = zoom / 100;
+    
+    for (let i = 1; i <= numPages; i++) {
+      offsets.push(currentTop);
+      const size = pageSizes[i] || { width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT };
+      currentTop += (size.height * scale) + (GAP * scale);
+      if (size.width * scale > maxWidth) maxWidth = size.width * scale;
+    }
+    return { totalHeight: currentTop, pageOffsets: offsets, containerWidth: maxWidth };
+  }, [numPages, pageSizes, zoom]);
+
+  const visiblePages = useMemo(() => {
+    if (!numPages || pageOffsets.length === 0) return [];
+    let low = 0, high = pageOffsets.length - 1;
+    let startIndex = 0;
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      if (pageOffsets[mid] <= scrollTop && (mid === pageOffsets.length - 1 || pageOffsets[mid + 1] > scrollTop)) {
+        startIndex = mid; break;
+      } else if (pageOffsets[mid] < scrollTop) {
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
+    }
+    
+    let endIndex = startIndex;
+    while (endIndex < numPages - 1 && pageOffsets[endIndex] < scrollTop + viewportHeight) {
+      endIndex++;
+    }
+    
+    const start = Math.max(0, startIndex - 2);
+    const end = Math.min(numPages - 1, endIndex + 2);
+    
+    const pages = [];
+    for (let i = start; i <= end; i++) pages.push(i + 1);
+    return pages;
+  }, [scrollTop, viewportHeight, pageOffsets, numPages]);
+
+  const THUMB_HEIGHT = 170; // 160 + 10 gap
+  const visibleThumbs = useMemo(() => {
+    if (!numPages) return [];
+    const startIndex = Math.max(0, Math.floor(sidebarScrollTop / THUMB_HEIGHT) - 3);
+    const endIndex = Math.min(numPages - 1, Math.floor((sidebarScrollTop + sidebarHeight) / THUMB_HEIGHT) + 3);
+    const thumbs = [];
+    for (let i = startIndex; i <= endIndex; i++) thumbs.push(i + 1);
+    return thumbs;
+  }, [sidebarScrollTop, sidebarHeight, numPages]);
+
+  useEffect(() => {
+    if (viewerRef.current) setViewportHeight(viewerRef.current.clientHeight);
+    if (sidebarRef.current) setSidebarHeight(sidebarRef.current.clientHeight);
+    const observer = new ResizeObserver(() => {
+      if (viewerRef.current) setViewportHeight(viewerRef.current.clientHeight);
+      if (sidebarRef.current) setSidebarHeight(sidebarRef.current.clientHeight);
+    });
+    if (viewerRef.current) observer.observe(viewerRef.current);
+    if (sidebarRef.current) observer.observe(sidebarRef.current);
+    return () => observer.disconnect();
+  }, [numPages, sidebarOpen]);
 
   useEffect(() => {
     try {
@@ -314,17 +395,20 @@ const PDFViewer = () => {
 
   const extractAllText = async (pdf) => {
     const texts = {};
-    for (let i = 1; i <= pdf.numPages; i++) {
+    const maxPagesToExtract = Math.min(pdf.numPages, 50);
+    for (let i = 1; i <= maxPagesToExtract; i++) {
       try {
         const page = await pdf.getPage(i);
         const textContent = await page.getTextContent();
         texts[i] = textContent.items.map(item => ({ str: item.str, transform: item.transform }));
+        if (i % 5 === 0) await new Promise(r => setTimeout(r, 10)); // Yield to main thread
       } catch (err) {
         console.error(`Error extracting text from page ${i}:`, err);
         texts[i] = [];
       }
     }
     setPageTexts(texts);
+    if (pdf.numPages > 50) toast.info('Search is limited to the first 50 pages for large PDFs.');
   };
 
   const onDocumentLoadError = (error) => {
@@ -399,7 +483,7 @@ const PDFViewer = () => {
   const applyZoom = useCallback((zoomModifier, focalX, focalY) => {
     setZoom(prev => {
       let nextZoom = typeof zoomModifier === 'function' ? zoomModifier(prev) : zoomModifier;
-      const clampedZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.round(nextZoom)));
+      const clampedZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, nextZoom));
       if (clampedZoom === prev) return prev;
 
       const viewer = viewerRef.current;
@@ -416,12 +500,28 @@ const PDFViewer = () => {
            cY = rect.height / 2;
         }
 
-        const contentX = cX + viewer.scrollLeft;
-        const contentY = cY + viewer.scrollTop;
+        const container = viewer.querySelector('.pdf-pages-container');
+        const baseContainerWidth = container ? container.clientWidth : viewer.clientWidth;
+        const virtualWidth = pendingScrollRef.current !== null ? pendingScrollRef.current.containerWidth : baseContainerWidth;
+        
+        const oldOffset = Math.max(0, (viewer.clientWidth - virtualWidth) / 2);
+        const newContainerWidth = virtualWidth * zoomRatio;
+        const newOffset = Math.max(0, (viewer.clientWidth - newContainerWidth) / 2);
+
+        const currentScrollLeft = pendingScrollRef.current !== null ? pendingScrollRef.current.left : viewer.scrollLeft;
+        const currentScrollTop = pendingScrollRef.current !== null ? pendingScrollRef.current.top : viewer.scrollTop;
+
+        const oldContentX = cX + currentScrollLeft - oldOffset;
+        const newContentX = oldContentX * zoomRatio;
+        const newScrollLeft = newContentX + newOffset - cX;
+
+        const contentY = cY + currentScrollTop;
+        const newScrollTop = (contentY * zoomRatio) - cY;
 
         pendingScrollRef.current = {
-          left: (contentX * zoomRatio) - cX,
-          top: (contentY * zoomRatio) - cY
+          left: newScrollLeft,
+          top: newScrollTop,
+          containerWidth: newContainerWidth
         };
       }
 
@@ -466,18 +566,41 @@ const PDFViewer = () => {
   }, [zoom]);
 
   const handleTouchMove = useCallback((e) => {
-    if (e.touches.length === 2 && pinchRef.current.active) {
+    if (e.touches.length === 2) {
       e.preventDefault();
-      const touch1 = e.touches[0];
-      const touch2 = e.touches[1];
-      const dist = Math.hypot(touch1.clientX - touch2.clientX, touch1.clientY - touch2.clientY);
-      
-      const scale = dist / pinchRef.current.distance;
-      applyZoom(pinchRef.current.zoom * scale, pinchRef.current.mouseX, pinchRef.current.mouseY);
+      if (pinchRef.current.active) {
+        const touch1 = e.touches[0];
+        const touch2 = e.touches[1];
+        const dist = Math.hypot(touch1.clientX - touch2.clientX, touch1.clientY - touch2.clientY);
+        
+        const scale = dist / pinchRef.current.distance;
+        applyZoom(pinchRef.current.zoom * scale, pinchRef.current.mouseX, pinchRef.current.mouseY);
+      }
     }
   }, [applyZoom]);
 
-  const handleTouchEnd = useCallback(() => { pinchRef.current.active = false; }, []);
+  const handleTouchEnd = useCallback((e) => {
+    if (pinchRef.current.active) {
+      pinchRef.current.active = false;
+    }
+  }, []);
+
+  const handleGestureStart = useCallback((e) => {
+    e.preventDefault();
+    pinchRef.current = { ...pinchRef.current, zoom, active: true };
+  }, [zoom]);
+
+  const handleGestureChange = useCallback((e) => {
+    e.preventDefault();
+    if (pinchRef.current.active) {
+      applyZoom(pinchRef.current.zoom * e.scale);
+    }
+  }, [applyZoom]);
+
+  const handleGestureEnd = useCallback((e) => {
+    e.preventDefault();
+    pinchRef.current.active = false;
+  }, []);
 
   const handleWheel = useCallback((e) => {
     if (e.ctrlKey || e.metaKey) {
@@ -488,27 +611,39 @@ const PDFViewer = () => {
       const rect = viewer.getBoundingClientRect();
       const focalX = e.clientX - rect.left;
       const focalY = e.clientY - rect.top;
-      const delta = -e.deltaY * 0.1; 
       
-      applyZoom(prev => prev + delta, focalX, focalY);
+      let delta = -e.deltaY;
+      if (Math.abs(delta) >= 50 && delta % 1 === 0) {
+        delta = Math.sign(delta) * 10;
+      }
+      
+      const scaleMultiplier = Math.exp(delta * 0.01);
+      applyZoom(prev => prev * scaleMultiplier, focalX, focalY);
     }
   }, [applyZoom]);
 
   useEffect(() => {
     const viewer = viewerRef.current;
     if (viewer) {
-      viewer.addEventListener('wheel', handleWheel, { passive: false });
-      viewer.addEventListener('touchstart', handleTouchStart, { passive: false });
-      viewer.addEventListener('touchmove', handleTouchMove, { passive: false });
-      viewer.addEventListener('touchend', handleTouchEnd);
+      const opts = { passive: false };
+      viewer.addEventListener('wheel', handleWheel, opts);
+      viewer.addEventListener('touchstart', handleTouchStart, opts);
+      viewer.addEventListener('touchmove', handleTouchMove, opts);
+      viewer.addEventListener('touchend', handleTouchEnd, opts);
+      viewer.addEventListener('gesturestart', handleGestureStart, opts);
+      viewer.addEventListener('gesturechange', handleGestureChange, opts);
+      viewer.addEventListener('gestureend', handleGestureEnd, opts);
       return () => {
         viewer.removeEventListener('wheel', handleWheel);
         viewer.removeEventListener('touchstart', handleTouchStart);
         viewer.removeEventListener('touchmove', handleTouchMove);
         viewer.removeEventListener('touchend', handleTouchEnd);
+        viewer.removeEventListener('gesturestart', handleGestureStart);
+        viewer.removeEventListener('gesturechange', handleGestureChange);
+        viewer.removeEventListener('gestureend', handleGestureEnd);
       };
     }
-  }, [handleWheel, handleTouchStart, handleTouchMove, handleTouchEnd]);
+  }, [handleWheel, handleTouchStart, handleTouchMove, handleTouchEnd, handleGestureStart, handleGestureChange, handleGestureEnd]);
 
   // Search Logic
   const performSearch = useCallback((query) => {
@@ -648,26 +783,37 @@ const PDFViewer = () => {
 
   const scrollToPage = useCallback((pageNum) => {
     setCurrentPage(pageNum);
-    pageRefs.current[pageNum]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const top = pageOffsets[pageNum - 1];
+    if (viewerRef.current && top !== undefined) {
+      viewerRef.current.scrollTo({ top, behavior: 'smooth' });
+    }
     if (isMobile) setSidebarOpen(false);
     updateHistoryPage(pageNum);
-  }, [isMobile, updateHistoryPage]);
+  }, [pageOffsets, isMobile, updateHistoryPage]);
 
   const handleScroll = useCallback(() => {
-    if (!numPages || !viewerRef.current) return;
-    const viewerTop = viewerRef.current.getBoundingClientRect().top;
-    let closest = 1, minDist = Infinity;
-
-    for (let i = 1; i <= numPages; i++) {
-      const el = pageRefs.current[i];
-      if (el) {
-        const dist = Math.abs(el.getBoundingClientRect().top - viewerTop);
-        if (dist < minDist) { minDist = dist; closest = i; }
+    if (!viewerRef.current) return;
+    const top = viewerRef.current.scrollTop;
+    setScrollTop(top);
+    
+    const center = top + (viewerRef.current.clientHeight / 2);
+    let low = 0, high = pageOffsets.length - 1;
+    let closest = 1;
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      if (pageOffsets[mid] <= center && (mid === pageOffsets.length - 1 || pageOffsets[mid + 1] > center)) {
+        closest = mid + 1;
+        break;
+      } else if (pageOffsets[mid] < center) {
+        low = mid + 1;
+      } else {
+        high = mid - 1;
       }
     }
-    setCurrentPage(closest);
+    
+    setCurrentPage(prev => prev !== closest ? closest : prev);
     showControls();
-  }, [numPages, showControls]);
+  }, [pageOffsets, showControls]);
 
   const handleDownload = useCallback(() => {
     const url = pdfFile ? URL.createObjectURL(pdfFile) : pdfUrl;
@@ -833,22 +979,23 @@ const PDFViewer = () => {
               )}
             </div>
 
-            <ScrollArea className="flex-1">
+            <div className="flex-1 overflow-y-auto" ref={sidebarRef} onScroll={(e) => setSidebarScrollTop(e.target.scrollTop)}>
               {sidebarTab === 'pages' && (
-                <div className="p-2">
-                  {numPages && Array.from({ length: numPages }, (_, i) => i + 1).map((pageNum) => (
-                    <div key={pageNum} className={`pdf-thumbnail ${currentPage === pageNum ? 'active' : ''}`} onClick={() => scrollToPage(pageNum)} data-testid={`thumbnail-page-${pageNum}`}>
-                      <div className="pdf-thumbnail-image">
-                        <Document file={pdfSource} loading="">
-                          <Page pageNumber={pageNum} width={120} renderTextLayer={false} renderAnnotationLayer={false} />
-                        </Document>
-                      </div>
-                      <div className="pdf-thumbnail-info">
-                        <span className="pdf-thumbnail-label">{pageNum}</span>
-                        {isPageBookmarked(pageNum) && <BookmarkSimple size={12} weight="fill" className="text-[#002FA7]" />}
-                      </div>
-                    </div>
-                  ))}
+                <div className="p-2" style={{ height: (numPages || 0) * THUMB_HEIGHT, position: 'relative' }}>
+                  {numPages && (
+                    <Document file={pdfSource} loading="">
+                      {visibleThumbs.map((pageNum) => (
+                        <div key={pageNum} style={{ position: 'absolute', top: (pageNum - 1) * THUMB_HEIGHT, left: 8, right: 8 }}>
+                          <ThumbnailItem 
+                            pageNum={pageNum}
+                            isActive={currentPage === pageNum}
+                            scrollToPage={scrollToPage}
+                            isBookmarked={isPageBookmarked(pageNum)}
+                          />
+                        </div>
+                      ))}
+                    </Document>
+                  )}
                 </div>
               )}
 
@@ -905,7 +1052,7 @@ const PDFViewer = () => {
                   )}
                 </div>
               )}
-            </ScrollArea>
+            </div>
           </aside>
         )}
 
@@ -943,18 +1090,21 @@ const PDFViewer = () => {
           )}
 
           {pdfSource && !error && (
-            <div className="pdf-pages-container">
-              {isLoading && <div className="pdf-loading"><div className="pdf-loading-spinner" /></div>}
+            <div 
+              className="pdf-pages-container" 
+              style={{ position: 'relative', height: totalHeight, width: Math.max(containerWidth, 595), display: 'inline-block' }}
+            >
               <Document file={pdfSource} onLoadSuccess={onDocumentLoadSuccess} onLoadError={onDocumentLoadError} loading={<div className="pdf-loading"><div className="pdf-loading-spinner" /></div>}>
-                {numPages && Array.from({ length: numPages }, (_, i) => i + 1).map((pageNum) => (
-                  <VisiblePage 
-                    key={pageNum}
-                    pageNumber={pageNum}
-                    targetScale={zoom / 100}
-                    renderedScale={renderedZoom / 100}
-                    isBookmarked={isPageBookmarked(pageNum)}
-                    pageRef={(el) => (pageRefs.current[pageNum] = el)}
-                  />
+                {visiblePages.map((pageNum) => (
+                  <div key={pageNum} style={{ position: 'absolute', top: pageOffsets[pageNum - 1], left: '50%', transform: 'translateX(-50%)' }}>
+                    <VisiblePage 
+                      pageNumber={pageNum}
+                      targetScale={zoom / 100}
+                      renderedScale={renderedZoom / 100}
+                      isBookmarked={isPageBookmarked(pageNum)}
+                      onSizeChange={(pageNumber, size) => setPageSizes(prev => ({ ...prev, [pageNumber]: size }))}
+                    />
+                  </div>
                 ))}
               </Document>
             </div>
@@ -976,13 +1126,13 @@ const PDFViewer = () => {
       {pdfSource && numPages && (
         <div className={`pdf-bottom-controls ${controlsVisible ? 'visible' : 'hidden'}`} data-testid="bottom-controls" ref={zoomMenuRef}>
           <button className="pdf-ctrl-btn" onClick={handleZoomOut} disabled={zoom <= MIN_ZOOM} data-testid="zoom-out-btn"><Minus size={16} weight="bold" /></button>
-          <button className="pdf-zoom-display" onClick={() => setShowZoomMenu(!showZoomMenu)} data-testid="zoom-level">{zoom}%</button>
+          <button className="pdf-zoom-display" onClick={() => setShowZoomMenu(!showZoomMenu)} data-testid="zoom-level">{Math.round(zoom)}%</button>
           <button className="pdf-ctrl-btn" onClick={handleZoomIn} disabled={zoom >= MAX_ZOOM} data-testid="zoom-in-btn"><Plus size={16} weight="bold" /></button>
           <button className="pdf-ctrl-btn" onClick={handleZoomReset} data-testid="zoom-reset-btn"><ArrowCounterClockwise size={16} /></button>
           {showZoomMenu && (
             <div className="pdf-zoom-menu" data-testid="zoom-menu">
               {ZOOM_PRESETS.map(p => (
-                <button key={p} onClick={() => { handleZoomChange(p); setShowZoomMenu(false); }} className={`pdf-zoom-menu-item ${zoom === p ? 'active' : ''}`}>{p}%</button>
+                <button key={p} onClick={() => { handleZoomChange(p); setShowZoomMenu(false); }} className={`pdf-zoom-menu-item ${Math.round(zoom) === p ? 'active' : ''}`}>{p}%</button>
               ))}
             </div>
           )}
